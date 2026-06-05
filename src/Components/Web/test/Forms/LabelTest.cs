@@ -372,6 +372,40 @@ public class LabelTest
     }
 
     [Fact]
+    public async Task RendersForAttributeWhenFieldPrefixProvided()
+    {
+        var parent = new TestModelWithNestedProperty();
+        AddressModel value = null!;
+
+        LambdaExpression parentExpr = () => parent.Address;
+        // The 'For' expression is intentionally on a different captured variable so HtmlFieldPrefix
+        // combines the parent prefix with the For expression (matching HtmlFieldPrefixTest patterns).
+        Expression<Func<string>> forExpr = () => value.Street;
+
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<CascadingValue<HtmlFieldPrefix>>(0);
+                builder.AddComponentParameter(1, "Value", new HtmlFieldPrefix(parentExpr));
+                builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(childBuilder =>
+                {
+                    childBuilder.OpenComponent<Label<string>>(0);
+                    childBuilder.AddComponentParameter(1, "For", forExpr);
+                    childBuilder.CloseComponent();
+                }));
+                builder.CloseComponent();
+            }
+        };
+
+        var frames = await RenderAndGetFrames(rootComponent);
+
+        var forAttribute = frames.First(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "for");
+        var expected = FieldIdGenerator.SanitizeHtmlId(new HtmlFieldPrefix(parentExpr).GetFieldName(forExpr));
+        Assert.Equal(expected, forAttribute.AttributeValue);
+    }
+
+    [Fact]
     public async Task SupportsLocalizationWithResourceType()
     {
         var model = new TestModel();
@@ -443,6 +477,125 @@ public class LabelTest
         var updatedClassAttr = updatedFrames.First(f =>
             f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "class");
         Assert.Equal("label-2", updatedClassAttr.AttributeValue);
+    }
+
+    [Fact]
+    public async Task ExplicitForInAdditionalAttributes_IsRenderedEvenWhenChildContentProvided()
+    {
+        var model = new TestModel();
+        var additionalAttributes = new Dictionary<string, object>
+        {
+            { "for", "explicit-input-id" }
+        };
+
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.PlainProperty));
+                builder.AddComponentParameter(2, "AdditionalAttributes", additionalAttributes);
+                builder.AddComponentParameter(3, "ChildContent", (RenderFragment)(childBuilder =>
+                {
+                    childBuilder.AddContent(0, "Input goes here");
+                }));
+                builder.CloseComponent();
+            }
+        };
+
+        var frames = await RenderAndGetFrames(rootComponent);
+
+        var forAttribute = frames.First(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "for");
+        Assert.Equal("explicit-input-id", forAttribute.AttributeValue);
+    }
+
+    [Fact]
+    public async Task ReRendersWhenOnlyAdditionalAttributesChange()
+    {
+        var model = new TestModel();
+        var attributes1 = new Dictionary<string, object> { { "class", "label-1" } };
+        var attributes2 = new Dictionary<string, object> { { "class", "label-2" } };
+
+        var currentAttributes = attributes1;
+
+        var testRenderer = new TestRenderer();
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.PlainProperty));
+                builder.AddComponentParameter(2, "AdditionalAttributes", currentAttributes);
+                builder.CloseComponent();
+            }
+        };
+
+        var componentId = testRenderer.AssignRootComponentId(rootComponent);
+        await testRenderer.RenderRootComponentAsync(componentId);
+
+        var initialFrames = testRenderer.Batches.Last().ReferenceFrames;
+        var initialClassAttr = initialFrames.First(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "class");
+        Assert.Equal("label-1", initialClassAttr.AttributeValue);
+
+        // Change only AdditionalAttributes
+        currentAttributes = attributes2;
+        rootComponent.InnerContent = builder =>
+        {
+            builder.OpenComponent<Label<string>>(0);
+            builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.PlainProperty));
+            builder.AddComponentParameter(2, "AdditionalAttributes", currentAttributes);
+            builder.CloseComponent();
+        };
+
+        await testRenderer.Dispatcher.InvokeAsync(() => rootComponent.TriggerRender());
+
+        var updatedFrames = testRenderer.Batches.Last().ReferenceFrames;
+        var updatedClassAttr = updatedFrames.First(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "class");
+        Assert.Equal("label-2", updatedClassAttr.AttributeValue);
+    }
+
+    [Fact]
+    public async Task ReRendersWhenChildContentChanges()
+    {
+        var model = new TestModel();
+
+        RenderFragment child1 = childBuilder => childBuilder.AddContent(0, "First Content");
+        RenderFragment child2 = childBuilder => childBuilder.AddContent(0, "Second Content");
+
+        var currentChild = child1;
+
+        var testRenderer = new TestRenderer();
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.PlainProperty));
+                builder.AddComponentParameter(2, "ChildContent", currentChild);
+                builder.CloseComponent();
+            }
+        };
+
+        var componentId = testRenderer.AssignRootComponentId(rootComponent);
+        await testRenderer.RenderRootComponentAsync(componentId);
+
+        var initialFrames = testRenderer.Batches.Last().ReferenceFrames;
+        Assert.Contains(initialFrames, f => f.FrameType == RenderTree.RenderTreeFrameType.Text && f.TextContent == "First Content");
+
+        // Change only ChildContent
+        currentChild = child2;
+        rootComponent.InnerContent = builder =>
+        {
+            builder.OpenComponent<Label<string>>(0);
+            builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.PlainProperty));
+            builder.AddComponentParameter(2, "ChildContent", currentChild);
+            builder.CloseComponent();
+        };
+
+        await testRenderer.Dispatcher.InvokeAsync(() => rootComponent.TriggerRender());
+
+        var updatedFrames = testRenderer.Batches.Last().ReferenceFrames;
+        Assert.Contains(updatedFrames, f => f.FrameType == RenderTree.RenderTreeFrameType.Text && f.TextContent == "Second Content");
     }
 
     private static async Task<RenderTreeFrame[]> RenderAndGetFrames(TestHostComponent rootComponent)
