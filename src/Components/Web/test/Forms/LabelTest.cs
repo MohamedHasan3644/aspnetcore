@@ -598,6 +598,98 @@ public class LabelTest
         Assert.Contains(updatedFrames, f => f.FrameType == RenderTree.RenderTreeFrameType.Text && f.TextContent == "Second Content");
     }
 
+    [Fact]
+    public async Task SupportsIndexerExpression()
+    {
+        var model = new TestModelWithIndexer();
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.Items[0].Name));
+                builder.CloseComponent();
+            }
+        };
+
+        var frames = await RenderAndGetFrames(rootComponent);
+
+        var textFrame = frames.First(f => f.FrameType == RenderTree.RenderTreeFrameType.Text);
+        Assert.Equal("Indexed Display", textFrame.TextContent);
+    }
+
+    [Fact]
+    public async Task FieldId_IsSanitized_NoDotsOrSpaces()
+    {
+        var model = new TestModelWithNestedProperty();
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.Address.Street));
+                builder.CloseComponent();
+            }
+        };
+
+        var frames = await RenderAndGetFrames(rootComponent);
+
+        var forAttribute = frames.First(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "for");
+        var forValue = (string)forAttribute.AttributeValue!;
+        Assert.DoesNotContain('.', forValue);
+        Assert.DoesNotContain(' ', forValue);
+        Assert.Contains('_', forValue);
+    }
+
+    [Fact]
+    public async Task AdditionalAttributes_EmptyDictionary_DoesNotAffectForGeneration()
+    {
+        var model = new TestModel();
+        var additionalAttributes = new Dictionary<string, object>();
+
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.PlainProperty));
+                builder.AddComponentParameter(2, "AdditionalAttributes", additionalAttributes);
+                builder.CloseComponent();
+            }
+        };
+
+        var frames = await RenderAndGetFrames(rootComponent);
+
+        var forAttribute = frames.First(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "for");
+        Assert.Equal("model_PlainProperty", forAttribute.AttributeValue);
+    }
+
+    [Fact]
+    public async Task AdditionalAttributes_NullValue_IsRenderedAsNull()
+    {
+        var model = new TestModel();
+        var additionalAttributes = new Dictionary<string, object>
+        {
+            { "data-null", null }
+        };
+
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.PlainProperty));
+                builder.AddComponentParameter(2, "AdditionalAttributes", additionalAttributes);
+                builder.CloseComponent();
+            }
+        };
+
+        var frames = await RenderAndGetFrames(rootComponent);
+
+        var dataAttrs = frames.Where(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "data-null").ToArray();
+        Assert.True(dataAttrs.Length == 0 || dataAttrs[0].AttributeValue == null, "Expected 'data-null' to be absent or present with null value.");
+    }
+
     private static async Task<RenderTreeFrame[]> RenderAndGetFrames(TestHostComponent rootComponent)
     {
         var testRenderer = new TestRenderer();
@@ -656,6 +748,17 @@ public class LabelTest
     {
         [Display(Name = "Street Address")]
         public string Street { get; set; } = string.Empty;
+    }
+
+    private class TestModelWithIndexer
+    {
+        public List<ItemModel> Items { get; } = new List<ItemModel> { new ItemModel() };
+
+        public class ItemModel
+        {
+            [Display(Name = "Indexed Display")]
+            public string Name { get; set; } = string.Empty;
+        }
     }
 
     public static class TestResources
