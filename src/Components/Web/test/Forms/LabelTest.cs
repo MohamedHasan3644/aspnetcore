@@ -690,6 +690,128 @@ public class LabelTest
         Assert.True(dataAttrs.Length == 0 || dataAttrs[0].AttributeValue == null, "Expected 'data-null' to be absent or present with null value.");
     }
 
+    [Fact]
+    public async Task AdditionalAttributes_Id_IsRendered()
+    {
+        var model = new TestModel();
+        var additionalAttributes = new Dictionary<string, object>
+        {
+            { "id", "label-custom-id" }
+        };
+
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.PlainProperty));
+                builder.AddComponentParameter(2, "AdditionalAttributes", additionalAttributes);
+                builder.CloseComponent();
+            }
+        };
+
+        var frames = await RenderAndGetFrames(rootComponent);
+
+        var idAttr = frames.First(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "id");
+        Assert.Equal("label-custom-id", idAttr.AttributeValue);
+    }
+
+    [Fact]
+    public async Task ChildContent_EmptyFragment_DoesNotRenderFor()
+    {
+        var model = new TestModel();
+
+        RenderFragment emptyChild = childBuilder => { };
+
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", (Expression<Func<string>>)(() => model.PlainProperty));
+                builder.AddComponentParameter(2, "ChildContent", emptyChild);
+                builder.CloseComponent();
+            }
+        };
+
+        var frames = await RenderAndGetFrames(rootComponent);
+
+        var forAttributes = frames.Where(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "for");
+        Assert.Empty(forAttributes);
+    }
+
+    [Fact]
+    public async Task IndexerWithFieldPrefix_GeneratesExpectedFor()
+    {
+        var parent = new TestModelWithIndexer();
+        TestModelWithIndexer value = null!;
+
+        LambdaExpression parentExpr = () => parent.Items;
+        Expression<Func<string>> forExpr = () => value.Items[0].Name;
+
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<CascadingValue<HtmlFieldPrefix>>(0);
+                builder.AddComponentParameter(1, "Value", new HtmlFieldPrefix(parentExpr));
+                builder.AddComponentParameter(2, "ChildContent", (RenderFragment)(childBuilder =>
+                {
+                    childBuilder.OpenComponent<Label<string>>(0);
+                    childBuilder.AddComponentParameter(1, "For", forExpr);
+                    childBuilder.CloseComponent();
+                }));
+                builder.CloseComponent();
+            }
+        };
+
+        var frames = await RenderAndGetFrames(rootComponent);
+
+        var forAttribute = frames.First(f => f.FrameType == RenderTree.RenderTreeFrameType.Attribute && f.AttributeName == "for");
+        var expected = FieldIdGenerator.SanitizeHtmlId(new HtmlFieldPrefix(parentExpr).GetFieldName(forExpr));
+        Assert.Equal(expected, forAttribute.AttributeValue);
+    }
+
+    [Fact]
+    public async Task ReRendersWhenForReferenceChanges()
+    {
+        var model = new TestModel();
+        Expression<Func<string>> forExpression1 = () => model.PlainProperty;
+        Expression<Func<string>> forExpression2 = () => model.PlainProperty;
+
+        var currentFor = forExpression1;
+
+        var testRenderer = new TestRenderer();
+        var rootComponent = new TestHostComponent
+        {
+            InnerContent = builder =>
+            {
+                builder.OpenComponent<Label<string>>(0);
+                builder.AddComponentParameter(1, "For", currentFor);
+                builder.CloseComponent();
+            }
+        };
+
+        var componentId = testRenderer.AssignRootComponentId(rootComponent);
+        await testRenderer.RenderRootComponentAsync(componentId);
+
+        var initialBatchCount = testRenderer.Batches.Count;
+
+        // Change only the For reference
+        currentFor = forExpression2;
+        rootComponent.InnerContent = builder =>
+        {
+            builder.OpenComponent<Label<string>>(0);
+            builder.AddComponentParameter(1, "For", currentFor);
+            builder.CloseComponent();
+        };
+
+        await testRenderer.Dispatcher.InvokeAsync(() => rootComponent.TriggerRender());
+
+        // Current behavior: changing the `For` expression reference causes a re-render.
+        Assert.Equal(initialBatchCount + 1, testRenderer.Batches.Count);
+    }
+
     private static async Task<RenderTreeFrame[]> RenderAndGetFrames(TestHostComponent rootComponent)
     {
         var testRenderer = new TestRenderer();
