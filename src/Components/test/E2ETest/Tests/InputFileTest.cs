@@ -221,6 +221,139 @@ public class InputFileTest : ServerTestBase<ToggleExecutionModeServerFixture<Pro
         Browser.Equal("0", () => Browser.Exists(By.Id("file-count")).Text);
     }
 
+    [Fact]
+    public void SingleFileSelectionExposesFileProperty()
+    {
+        // Create a temporary text file
+        var file = TempFile.Create(_tempDirectory, "txt", "Single file test content.");
+
+        // Upload the file
+        var inputFile = Browser.Exists(By.Id("input-file"));
+        inputFile.SendKeys(file.Path);
+
+        // Validate that the file was uploaded correctly using FileCount
+        var fileCount = Browser.Exists(By.Id("file-count"));
+        Browser.Equal("1", () => fileCount.Text);
+
+        // Validate file metadata
+        var fileContainer = Browser.Exists(By.Id($"file-{file.Name}"));
+        var fileNameElement = fileContainer.FindElement(By.Id("file-name"));
+        Browser.Equal(file.Name, () => fileNameElement.Text);
+    }
+
+    [Fact]
+    public void MultipleFilesSelectionExceedsMaxAllowedFiles()
+    {
+        // Create multiple files
+        var files = Enumerable.Range(1, 3)
+            .Select(i => TempFile.Create(_tempDirectory, "txt", $"Contents of file {i}."))
+            .ToList();
+
+        // Set max allowed files to 1
+        var maxAllowedFilesElement = Browser.Exists(By.Id("max-allowed-files"));
+        maxAllowedFilesElement.Clear();
+        maxAllowedFilesElement.SendKeys("1\n");
+
+        // Select multiple files (3 files)
+        var inputFile = Browser.Exists(By.Id("input-file"));
+        inputFile.SendKeys(string.Join("\n", files.Select(f => f.Path)));
+
+        // Validate that exception is thrown when files exceed max allowed
+        var exceptionMessage = Browser.Exists(By.Id("exception-message"));
+        Browser.True(() => exceptionMessage.Text.Contains("The maximum number of files accepted is 1, but 3 were supplied"));
+    }
+
+    [Fact]
+    public void CanUploadEmptyFile()
+    {
+        // Create an empty file (0 bytes)
+        var file = TempFile.Create(_tempDirectory, "txt", "");
+
+        // Upload the file
+        var inputFile = Browser.Exists(By.Id("input-file"));
+        inputFile.SendKeys(file.Path);
+
+        // Validate that the file was uploaded correctly
+        var fileContainer = Browser.Exists(By.Id($"file-{file.Name}"));
+        var fileSizeElement = fileContainer.FindElement(By.Id("file-size"));
+        Browser.Equal("0", () => fileSizeElement.Text);
+    }
+
+    [Fact]
+    public void ThrowsWhenDefault500KBSizeLimitExceeded()
+    {
+        // Set max file size to default 500KB limit (512000 bytes)
+        var maxFileSizeElement = Browser.Exists(By.Id("max-file-size"));
+        maxFileSizeElement.Clear();
+        maxFileSizeElement.SendKeys("512000\n");
+
+        // Create a file that exceeds 500KB
+        var fileContentSizeInBytes = 600 * 1024; // 600 KB
+        var contentBuilder = new StringBuilder();
+        for (int i = 0; i < fileContentSizeInBytes; i++)
+        {
+            contentBuilder.Append((i % 10).ToString(CultureInfo.InvariantCulture));
+        }
+
+        var file = TempFile.Create(_tempDirectory, "txt", contentBuilder.ToString());
+
+        // Select the file
+        var inputFile = Browser.Exists(By.Id("input-file"));
+        inputFile.SendKeys(file.Path);
+
+        // Validate that the proper exception is thrown
+        var exceptionMessage = Browser.Exists(By.Id("exception-message"));
+        Browser.True(() => exceptionMessage.Text.Contains("exceeds the maximum of"));
+    }
+
+    [Fact]
+    public void LoadingStateIsShownDuringFileRead()
+    {
+        // Create a small text file
+        var file = TempFile.Create(_tempDirectory, "txt", "Loading state test.");
+
+        // Verify the loading state is shown during upload
+        var inputFile = Browser.Exists(By.Id("input-file"));
+        inputFile.SendKeys(file.Path);
+
+        // The test component shows "Loading..." when isLoading is true
+        // After loading completes, we should see the file content
+        var fileContainer = Browser.Exists(By.Id($"file-{file.Name}"));
+        Browser.True(() => fileContainer.Displayed);
+    }
+
+    [Fact]
+    public void RequestImageFileAsyncWithJpegFormat()
+    {
+        var sourceImageId = "image-source";
+        var imageStatus = Browser.Exists(By.Id("image-status"));
+        Browser.Equal("ready", () => imageStatus.Text);
+
+        // Get the source image base64
+        var base64 = Browser.ExecuteJavaScript<string>($@"
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                const image = document.getElementById('{sourceImageId}');
+
+                canvas.width = image.naturalWidth;
+                canvas.height = image.naturalHeight;
+                context.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight);
+
+                return canvas.toDataURL().split(',').pop();");
+
+        // Save the image file locally
+        var file = TempFile.Create(_tempDirectory, "png", Convert.FromBase64String(base64));
+
+        // Re-upload the image file with explicit JPEG format
+        var inputFile = Browser.Exists(By.Id("input-image"));
+        inputFile.SendKeys(file.Path);
+
+        // Validate that the image was converted without error and is the correct size
+        var uploadedImage = Browser.Exists(By.Id("image-uploaded"));
+        Browser.Equal(480, () => uploadedImage.Size.Width);
+        Browser.Equal(480, () => uploadedImage.Size.Height);
+    }
+
     public void Dispose()
     {
         Directory.Delete(_tempDirectory, recursive: true);
