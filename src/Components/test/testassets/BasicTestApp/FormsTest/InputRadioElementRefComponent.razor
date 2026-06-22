@@ -1,0 +1,28 @@
+﻿@using Microsoft.AspNetCore.Components.Forms
+@namespace BasicTestApp.FormsTest
+
+<InputRadioGroup TValue="string" @bind-Value="Selected">
+    <InputRadio @ref="radioRef" Value="A" />
+    <InputRadio Value="B" />
+</InputRadioGroup>
+
+<p id="element-set">@ElementSet</p>
+
+@code {
+    private InputRadio<string>? radioRef;
+    private string ElementSet = "False";
+    private string Selected = string.Empty;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && radioRef is not null)
+        {
+            var defaultRef = default(Microsoft.AspNetCore.Components.ElementReference);
+            if (!radioRef.Element.Equals(defaultRef))
+            {
+                ElementSet = "True";
+                StateHasChanged();
+            }
+        }
+    }
+}

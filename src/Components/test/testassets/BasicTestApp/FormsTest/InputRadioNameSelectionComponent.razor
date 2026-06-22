@@ -1,0 +1,22 @@
+﻿@using Microsoft.AspNetCore.Components.Forms
+@namespace BasicTestApp.FormsTest
+
+<InputRadioGroup TValue="string" Name="outer" @bind-Value="OuterSelected">
+    <InputRadio Value="Option1" />
+    <InputRadio Value="Option2" />
+
+    <div class="inner">
+        <InputRadioGroup TValue="string" Name="inner" @bind-Value="InnerSelected">
+            <!-- This radio specifies Name="outer" so it should resolve to the outer group's context -->
+            <InputRadio class="target-outer" Name="outer" Value="Option1" />
+            <InputRadio Value="InnerOption" />
+        </InputRadioGroup>
+    </div>
+</InputRadioGroup>
+
+<p id="outer-selected">Outer: @OuterSelected</p>
+
+@code {
+    private string OuterSelected = string.Empty;
+    private string InnerSelected = string.Empty;
+}

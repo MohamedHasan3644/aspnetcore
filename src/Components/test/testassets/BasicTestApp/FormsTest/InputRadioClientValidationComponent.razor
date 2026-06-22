@@ -1,0 +1,19 @@
+﻿@using Microsoft.AspNetCore.Components.Forms
+@namespace BasicTestApp.FormsTest
+
+<div class="client-validation-group">
+    <InputRadioGroup TValue="string" @bind-Value="Selected" AdditionalAttributes="@ClientValidationAttrs">
+        <InputRadio Value="A" />
+        <InputRadio Value="B" />
+        <InputRadio Value="C" />
+    </InputRadioGroup>
+</div>
+
+@code {
+    private string Selected = "A";
+    private IReadOnlyDictionary<string, object> ClientValidationAttrs = new Dictionary<string, object>
+    {
+        ["data-val"] = "true",
+        ["data-val-required"] = "Required"
+    };
+}

@@ -465,6 +465,42 @@ public class FormsTest : ServerTestBase<ToggleExecutionModeServerFixture<Program
     }
 
     [Fact]
+    public void InputRadio_ClientValidationAttributes_AppearOnlyOnFirstRadio()
+    {
+        var appElement = Browser.MountTestComponent<InputRadioClientValidationComponent>();
+
+        var inputs = appElement.FindElement(By.ClassName("client-validation-group")).FindElements(By.TagName("input"));
+        var first = inputs.First();
+
+        // First radio should have data-val attributes, subsequent ones should not
+        Browser.True(() => !string.IsNullOrEmpty(first.GetDomAttribute("data-val")));
+        Browser.True(() => inputs.Skip(1).All(i => i.GetDomAttribute("data-val") == null));
+    }
+
+    [Fact]
+    public void InputRadio_WithNameParameter_ResolvesToSpecifiedAncestorContext()
+    {
+        var appElement = Browser.MountTestComponent<InputRadioNameSelectionComponent>();
+
+        var outerSelected = appElement.FindElement(By.Id("outer-selected"));
+        var innerTargetRadio = appElement.FindElement(By.CssSelector(".inner .target-outer input"));
+
+        // Select the radio that's declared inside the inner group but targets the outer group
+        innerTargetRadio.Click();
+
+        Browser.Equal("Outer: Option1", () => outerSelected.Text);
+    }
+
+    [Fact]
+    public void InputRadio_ElementReference_IsCaptured()
+    {
+        var appElement = Browser.MountTestComponent<InputRadioElementRefComponent>();
+
+        // The component writes whether the child InputRadio captured an ElementReference
+        Browser.Equal("True", () => appElement.FindElement(By.Id("element-set")).Text);
+    }
+
+    [Fact]
     public void CanWireUpINotifyPropertyChangedToEditContext()
     {
         var appElement = Browser.MountTestComponent<NotifyPropertyChangedValidationComponent>();
