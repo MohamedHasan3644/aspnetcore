@@ -253,6 +253,14 @@ public abstract class NavigationManager
     /// falling back on a full page reload if necessary.
     /// </remarks>
     public virtual void Refresh(bool forceReload = false)
+        // In the default implementation, we intentionally ignore the `forceReload`
+        // parameter and always pass `forceLoad: true` to `NavigateTo`.
+        // This preserves the expected behavior for pre-.NET 8
+        // `NavigationManager` implementations (which may assume a full reload
+        // in static rendering / non-interactive contexts) and avoids silently
+        // turning `Refresh()` into a no-op after adding this virtual method.
+        // Implementations that want to honor `forceReload` should override
+        // `Refresh(bool)` in derived types.
         => NavigateTo(Uri, forceLoad: true, replace: true);
 
     /// <summary>
