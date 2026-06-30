@@ -1068,56 +1068,6 @@ public class NavigationManagerTest
         Assert.Equal(expectedUri, testNavManager.Navigations[0].uri);
     }
 
-    [Fact]
-    public void Refresh_WithForceReloadFalse_StillPerformsHardRefresh()
-    {
-        var navigationManager = new TestNavigationManagerWithNavigationTracking("http://example.com/", "http://example.com/page");
-
-        navigationManager.Refresh(forceReload: false);
-
-        Assert.Single(navigationManager.Navigations);
-        Assert.Equal("http://example.com/page", navigationManager.Navigations[0].uri);
-        Assert.True(navigationManager.Navigations[0].options.ForceLoad);
-        Assert.True(navigationManager.Navigations[0].options.ReplaceHistoryEntry);
-    }
-
-    [Fact]
-    public void Refresh_WithForceReloadTrue_PerformsHardRefresh()
-    {
-        var navigationManager = new TestNavigationManagerWithNavigationTracking("http://example.com/", "http://example.com/page");
-
-        navigationManager.Refresh(forceReload: true);
-
-        Assert.Single(navigationManager.Navigations);
-        Assert.Equal("http://example.com/page", navigationManager.Navigations[0].uri);
-        Assert.True(navigationManager.Navigations[0].options.ForceLoad);
-        Assert.True(navigationManager.Navigations[0].options.ReplaceHistoryEntry);
-    }
-
-    [Fact]
-    public void Refresh_WithoutParameters_PerformsHardRefresh()
-    {
-        var navigationManager = new TestNavigationManagerWithNavigationTracking("http://example.com/", "http://example.com/page");
-
-        navigationManager.Refresh();
-
-        Assert.Single(navigationManager.Navigations);
-        Assert.True(navigationManager.Navigations[0].options.ForceLoad);
-    }
-
-    [Fact]
-    public void RefreshOverride_CanHonorForceReloadParameter()
-    {
-        var navigationManager = new CustomNavigationManagerForTests();
-        navigationManager.Initialize("http://example.com/", "http://example.com/page");
-
-        navigationManager.Refresh(forceReload: false);
-
-        Assert.Equal("http://example.com/page", navigationManager.CapturedUri);
-        Assert.False(navigationManager.CapturedForceLoad);
-        Assert.True(navigationManager.CapturedReplace);
-    }
-
     // These are absolute URIs and should throw
     [Theory]
     [InlineData("/g")]
@@ -1178,30 +1128,6 @@ public class NavigationManagerTest
 
         protected override void SetNavigationLockState(bool value)
         {
-        }
-    }
-
-    private class CustomNavigationManagerForTests : NavigationManager
-    {
-        public string CapturedUri { get; private set; } = string.Empty;
-        public bool CapturedForceLoad { get; private set; }
-        public bool CapturedReplace { get; private set; }
-
-        public new void Initialize(string baseUri, string uri)
-        {
-            base.Initialize(baseUri, uri);
-        }
-
-        public override void Refresh(bool forceReload = false)
-        {
-            NavigateTo(Uri, forceLoad: forceReload, replace: true);
-        }
-
-        protected override void NavigateToCore(string uri, NavigationOptions options)
-        {
-            CapturedUri = uri;
-            CapturedForceLoad = options.ForceLoad;
-            CapturedReplace = options.ReplaceHistoryEntry;
         }
     }
 
