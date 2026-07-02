@@ -206,14 +206,14 @@ public abstract class NavigationManager
         var queryOrFragmentIndex = currentUri.IndexOfAny('?', '#');
         var pathOnlyLength = queryOrFragmentIndex >= 0 ? queryOrFragmentIndex : currentUri.Length;
         var lastSlashIndex = currentUri[..pathOnlyLength].LastIndexOf('/');
-
+        
         if (lastSlashIndex < 0)
         {
             // No slash found - this shouldn't happen for valid absolute URIs
             // In this edge case, just append to the current URI
             return string.Concat(_uri, relativeUri);
         }
-
+        
         // Keep everything up to and including the last slash, then append the relative URI
         var basePathLength = lastSlashIndex + 1;
         return string.Concat(currentUri[..basePathLength], relativeUri.AsSpan());
@@ -247,49 +247,21 @@ public abstract class NavigationManager
     /// <summary>
     /// Refreshes the current page via request to the server.
     /// </summary>
-    /// <param name="forceReload">
-    /// If <c>true</c>, forces a full page reload from the server. If <c>false</c>, the framework
-    /// may attempt to merge the response HTML with the document's existing HTML to preserve
-    /// client-side state, falling back to a full page reload if necessary.
-    ///
-    /// <note type="important">
-    /// The default implementation of this method intentionally ignores this parameter and always
-    /// performs a full reload (passes <c>forceLoad: true</c> to <see cref="NavigateTo(string, bool, bool)"/>)
-    /// for backward compatibility with <see cref="NavigationManager"/> implementations created
-    /// before .NET 8. Those older implementations often expect a hard refresh and a "soft"
-    /// refresh (with <c>forceReload: false</c>) would be a no-op in fully interactive contexts.
-    /// See https://github.com/dotnet/aspnetcore/issues/59854 for discussion and rationale.
-    ///
-    /// To implement custom behavior that respects the <paramref name="forceReload"/> parameter,
-    /// override this method in a derived class. Example:
-    /// <code language="csharp">
-    /// public override void Refresh(bool forceReload = false)
-    /// {
-    ///     NavigateTo(Uri, forceLoad: forceReload, replace: true);
-    /// }
-    /// </code>
-    /// </note>
-    /// </param>
     /// <remarks>
-    /// This method was added in .NET 8 as a virtual method to preserve compatibility with
-    /// existing implementations. The contract permits falling back to a full reload when a
-    /// soft refresh is requested; the default implementation chooses the safe behavior that
-    /// "just works" across static and interactive hosting scenarios.
+    /// If <paramref name="forceReload"/> is <c>true</c>, a full page reload will always be performed.
+    /// Otherwise, the response HTML may be merged with the document's existing HTML to preserve client-side state,
+    /// falling back on a full page reload if necessary.
     /// </remarks>
     public virtual void Refresh(bool forceReload = false)
-    {
-        // COMPATIBILITY NOTE (Issue #59854): This method was added in .NET 8 as a virtual
-        // method (not abstract) to maintain backward compatibility with existing
-        // NavigationManager implementations that were designed for fully interactive contexts.
-        //
-        // In the default implementation, we intentionally ignore the 'forceReload' parameter
-        // and always pass 'forceLoad: true' to NavigateTo(). This ensures Refresh() does not
-        // become a no-op on implementations that expect a hard reload.
-        //
-        // If your implementation can properly handle soft refreshes and you want to honor the
-        // parameter, override this method and call NavigateTo(Uri, forceLoad: forceReload, replace: true).
-        NavigateTo(Uri, forceLoad: true, replace: true);
-    }
+        // In the default implementation, we intentionally ignore the `forceReload`
+        // parameter and always pass `forceLoad: true` to `NavigateTo`.
+        // This preserves the expected behavior for pre-.NET 8
+        // `NavigationManager` implementations (which may assume a full reload
+        // in static rendering / non-interactive contexts) and avoids silently
+        // turning `Refresh()` into a no-op after adding this virtual method.
+        // Implementations that want to honor `forceReload` should override
+        // `Refresh(bool)` in derived types.
+        => NavigateTo(Uri, forceLoad: true, replace: true);
 
     /// <summary>
     /// Handles setting the NotFound state.
