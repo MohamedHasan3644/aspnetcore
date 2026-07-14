@@ -488,10 +488,117 @@ public class RouterTest
         Assert.Contains("No component found for route '/nonexistent-route'", exception.Message);
     }
 
+    [Fact]
+    public async Task ProgrammaticNavigationToPageWithExcludeFromInteractiveRoutingAttribute_TriggersForceLoad()
+    {
+        // Simulate the scenario where a user starts on an interactive page, then
+        // NavigationManager.NavigateTo("/static-page") is called from code. The /static-page
+        // component is decorated with [ExcludeFromInteractiveRouting], so it should trigger a
+        // full-page reload (forceLoad: true) instead of being resolved by interactive routing.
+        _navigationManager.NotifyLocationChanged("https://www.example.com/subdir/static-page", false);
+
+        var parameters = new Dictionary<string, object>
+        {
+            { nameof(Router.AppAssembly), typeof(RouterTest).Assembly },
+            { nameof(Router.NotFound), (RenderFragment)(builder => builder.AddContent(0, "NotFound")) },
+        };
+
+        await _renderer.Dispatcher.InvokeAsync(() =>
+            _router.SetParametersAsync(ParameterView.FromDictionary(parameters)));
+
+        // The Router should have called NavigateTo with forceLoad: true for the excluded page.
+        var forceLoadNavigation = Assert.Single(_navigationManager.Navigations);
+        Assert.True(forceLoadNavigation.ForceLoad,
+            "Expected NavigationManager.NavigateTo(forceLoad: true) when navigating to a page marked with [ExcludeFromInteractiveRouting].");
+        Assert.Equal("https://www.example.com/subdir/static-page", forceLoadNavigation.Uri);
+    }
+
+    [Fact]
+    public async Task ProgrammaticNavigationToNonexistentRoute_StillShowsNotFound()
+    {
+        // Navigating to a route that does not correspond to any component (and is not an excluded page)
+        // should still show the NotFound content for non-intercepted navigations.
+        _navigationManager.NotifyLocationChanged("https://www.example.com/subdir/does-not-exist", false);
+
+        var parameters = new Dictionary<string, object>
+        {
+            { nameof(Router.AppAssembly), typeof(RouterTest).Assembly },
+            { nameof(Router.NotFound), (RenderFragment)(builder => builder.AddContent(0, "Custom not found")) },
+        };
+
+        await _renderer.Dispatcher.InvokeAsync(() =>
+            _router.SetParametersAsync(ParameterView.FromDictionary(parameters)));
+
+        Assert.Empty(_navigationManager.Navigations);
+
+        var renderedFrame = _renderer.Batches.Last().ReferenceFrames.First();
+        Assert.Equal(RenderTreeFrameType.Text, renderedFrame.FrameType);
+        Assert.Equal("Custom not found", renderedFrame.TextContent);
+    }
+
+    [Fact]
+    public async Task ProgrammaticNavigationToInteractiveRoute_DoesNotForceLoad()
+    {
+        // Navigating to a regular interactive page should not trigger a force reload.
+        _navigationManager.NotifyLocationChanged("https://www.example.com/subdir/feb", false);
+
+        var parameters = new Dictionary<string, object>
+        {
+            { nameof(Router.AppAssembly), typeof(RouterTest).Assembly },
+            { nameof(Router.NotFound), (RenderFragment)(builder => builder.AddContent(0, "NotFound")) },
+        };
+
+        await _renderer.Dispatcher.InvokeAsync(() =>
+            _router.SetParametersAsync(ParameterView.FromDictionary(parameters)));
+
+        Assert.Empty(_navigationManager.Navigations);
+
+        var renderedFrame = _renderer.Batches.Last().ReferenceFrames.First();
+        Assert.Equal(RenderTreeFrameType.Text, renderedFrame.FrameType);
+        Assert.Equal($"Rendering route matching {typeof(FebComponent)}", renderedFrame.TextContent);
+    }
+
+    [Fact]
+    public async Task InterceptedNavigationToPageWithExcludeFromInteractiveRoutingAttribute_TriggersForceLoad()
+    {
+        // This verifies the existing behavior: anchor-link clicks on a page marked with
+        // [ExcludeFromInteractiveRouting] already fall back to a full page reload. This test
+        // protects against regressions. We model the intercepted link click by performing a
+        // refresh with isNavigationIntercepted: true for an excluded page.
+        _navigationManager.NotifyLocationChanged("https://www.example.com/subdir/static-page", false);
+
+        var parameters = new Dictionary<string, object>
+        {
+            { nameof(Router.AppAssembly), typeof(RouterTest).Assembly },
+            { nameof(Router.NotFound), (RenderFragment)(builder => builder.AddContent(0, "NotFound")) },
+        };
+
+        await _renderer.Dispatcher.InvokeAsync(() =>
+            _router.SetParametersAsync(ParameterView.FromDictionary(parameters)));
+        // After the initial render the Router has already triggered a force-load navigation
+        // (the new behavior added in this fix). Simulate the additional re-render that occurs
+        // when an intercepted link click triggers a refresh with isNavigationIntercepted: true.
+        // The second call to NavigateTo should not happen because the first one already updated
+        // the location. To avoid double-counting, we assert that exactly one navigation occurred,
+        // which is the programmatic one, and then exercise the intercepted path directly.
+        var initialNavigations = _navigationManager.Navigations.Count;
+        _router.Refresh(isNavigationIntercepted: true);
+
+        // The intercepted path should also trigger a force-load navigation, leading to a second
+        // NavigateTo call. This ensures the existing behavior for intercepted link clicks
+        // continues to work.
+        Assert.Equal(initialNavigations + 1, _navigationManager.Navigations.Count);
+        var forceLoadNavigation = _navigationManager.Navigations.Last();
+        Assert.True(forceLoadNavigation.ForceLoad);
+        Assert.Equal("https://www.example.com/subdir/static-page", forceLoadNavigation.Uri);
+    }
+
     internal class TestNavigationManager : NavigationManager
     {
         public TestNavigationManager() =>
             Initialize("https://www.example.com/subdir/", "https://www.example.com/subdir/jan");
+
+        public List<(string Uri, bool ForceLoad)> Navigations { get; } = new();
 
         public void NotifyLocationChanged(string uri, bool intercepted, string state = null)
         {
@@ -502,6 +609,11 @@ public class RouterTest
         public void TriggerNotFound()
         {
             base.NotFound();
+        }
+
+        protected override void NavigateToCore(string uri, bool forceLoad)
+        {
+            Navigations.Add((uri, forceLoad));
         }
     }
 
@@ -537,5 +649,9 @@ public class RouterTest
 
     [Route("not-found")]
     public class NotFoundTestComponent : ComponentBase { }
+
+    [Route("static-page")]
+    [ExcludeFromInteractiveRouting]
+    public class ExcludedFromInteractiveRoutingComponent : ComponentBase { }
 
 }

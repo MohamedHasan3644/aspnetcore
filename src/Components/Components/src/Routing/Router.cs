@@ -42,6 +42,8 @@ public partial class Router : IComponent, IHandleAfterRender, IDisposable
 
     private bool _onNavigateCalled;
 
+    private RouteTable? _excludedRouteTable;
+
     [Inject] private NavigationManager NavigationManager { get; set; }
 
     [Inject] private INavigationInterception NavigationInterception { get; set; }
@@ -200,6 +202,7 @@ public partial class Router : IComponent, IHandleAfterRender, IDisposable
         if (!routeKey.Equals(_routeTableLastBuiltForRouteKey))
         {
             Routes = RouteTableFactory.Instance.Create(routeKey, ServiceProvider);
+            _excludedRouteTable = RouteTableFactory.Instance.GetExcludedRouteTable(routeKey, ServiceProvider);
             _routeTableLastBuiltForRouteKey = routeKey;
         }
     }
@@ -208,6 +211,22 @@ public partial class Router : IComponent, IHandleAfterRender, IDisposable
     {
         RouteTableFactory.Instance.ClearCaches();
         _routeTableLastBuiltForRouteKey = default;
+        _excludedRouteTable = null;
+    }
+
+    private bool IsExcludedFromInteractiveRoutingRoute(string locationPath)
+    {
+        // Ensure the excluded route table is built (RefreshRouteTable sets it, but we may be
+        // called before that for the very first render).
+        if (_excludedRouteTable is null)
+        {
+            var routeKey = new RouteKey(AppAssembly, AdditionalAssemblies);
+            _excludedRouteTable = RouteTableFactory.Instance.GetExcludedRouteTable(routeKey, ServiceProvider);
+        }
+
+        var context = new RouteContext(locationPath);
+        _excludedRouteTable.Route(context);
+        return context.Handler is not null && typeof(IComponent).IsAssignableFrom(context.Handler);
     }
 
     internal virtual void Refresh(bool isNavigationIntercepted)
@@ -287,14 +306,31 @@ public partial class Router : IComponent, IHandleAfterRender, IDisposable
         {
             if (!isNavigationIntercepted)
             {
-                activityHandle = RecordDiagnostics("NotFound", "NotFound");
+                // We did not find a Component that matches the route in the interactive route table.
+                // Check whether the URL matches a page that has [ExcludeFromInteractiveRouting] applied
+                // to it. If it does, the navigation came from a programmatic NavigationManager.NavigateTo()
+                // call and the destination is a page that is intentionally excluded from interactive
+                // routing, so we fall back to a full-page navigation (forceLoad: true). This mirrors the
+                // behavior of clicking an anchor whose destination is an excluded page, and ensures that
+                // developers do not need to know whether the target page is interactive or static.
+                if (IsExcludedFromInteractiveRoutingRoute(locationPath))
+                {
+                    activityHandle = RecordDiagnostics("External", "External");
 
-                Log.DisplayingNotFound(_logger, locationPath, _baseUri);
+                    Log.NavigatingToExternalUri(_logger, _locationAbsolute, locationPath, _baseUri);
+                    NavigationManager.NavigateTo(_locationAbsolute, forceLoad: true);
+                }
+                else
+                {
+                    activityHandle = RecordDiagnostics("NotFound", "NotFound");
 
-                // We did not find a Component that matches the route.
-                // Only show the NotFound content if the application developer programmatically got us here i.e we did not
-                // intercept the navigation. In all other cases, force a browser navigation since this could be non-Blazor content.
-                RenderNotFound();
+                    Log.DisplayingNotFound(_logger, locationPath, _baseUri);
+
+                    // We did not find a Component that matches the route.
+                    // Only show the NotFound content if the application developer programmatically got us here i.e we did not
+                    // intercept the navigation. In all other cases, force a browser navigation since this could be non-Blazor content.
+                    RenderNotFound();
+                }
             }
             else
             {

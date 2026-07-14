@@ -90,6 +90,45 @@ public class RouteTableFactoryTests
     }
 
     [Fact]
+    public void GetExcludedRouteTable_OnlyContainsPagesMarkedWithExcludeFromInteractiveRoutingAttribute()
+    {
+        var routeTableFactory = new RouteTableFactory();
+        var excludedRouteTable = routeTableFactory.GetExcludedRouteTable(
+            new RouteKey(GetType().Assembly, Array.Empty<Assembly>()),
+            _serviceProvider);
+
+        var routes = GetRoutes(excludedRouteTable);
+
+        Assert.DoesNotContain(routes, r => r.Handler == typeof(ComponentWithoutExcludeFromInteractiveRoutingAttribute));
+        Assert.Contains(routes, r => r.Handler == typeof(ComponentWithExcludeFromInteractiveRoutingAttribute));
+    }
+
+    [Fact]
+    public void GetExcludedRouteTable_CachesResults()
+    {
+        var routeTableFactory = new RouteTableFactory();
+        var routeKey = new RouteKey(GetType().Assembly, Array.Empty<Assembly>());
+
+        var table1 = routeTableFactory.GetExcludedRouteTable(routeKey, _serviceProvider);
+        var table2 = routeTableFactory.GetExcludedRouteTable(routeKey, _serviceProvider);
+
+        Assert.Same(table1, table2);
+    }
+
+    [Fact]
+    public void ClearCaches_InvalidatesExcludedRouteTableCache()
+    {
+        var routeTableFactory = new RouteTableFactory();
+        var routeKey = new RouteKey(GetType().Assembly, Array.Empty<Assembly>());
+        var table1 = routeTableFactory.GetExcludedRouteTable(routeKey, _serviceProvider);
+
+        routeTableFactory.ClearCaches();
+        var table2 = routeTableFactory.GetExcludedRouteTable(routeKey, _serviceProvider);
+
+        Assert.NotSame(table1, table2);
+    }
+
+    [Fact]
     public void CanDiscoverRoute()
     {
         // Arrange & Act

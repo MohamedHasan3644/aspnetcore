@@ -30,6 +30,7 @@ internal class RouteTableFactory
     });
 
     private readonly ConcurrentDictionary<RouteKey, RouteTable> _cache = new();
+    private readonly ConcurrentDictionary<RouteKey, RouteTable> _excludedRouteCache = new();
 
     public RouteTable Create(RouteKey routeKey, IServiceProvider serviceProvider)
     {
@@ -38,21 +39,47 @@ internal class RouteTableFactory
             return resolvedComponents;
         }
 
-        var componentTypes = GetRouteableComponents(routeKey);
+        var componentTypes = GetRouteableComponents(routeKey, includeExcludedFromInteractiveRouting: false);
         var routeTable = Create(componentTypes, serviceProvider);
         _cache.TryAdd(routeKey, routeTable);
         return routeTable;
     }
 
-    public void ClearCaches() => _cache.Clear();
+    /// <summary>
+    /// Creates a <see cref="RouteTable"/> that contains only page components that are decorated with
+    /// <see cref="ExcludeFromInteractiveRoutingAttribute"/>. This is used by the interactive <see cref="Router"/>
+    /// to detect when a programmatic navigation targets a page that is excluded from interactive routing
+    /// so that it can automatically perform a full-page navigation instead.
+    /// </summary>
+    /// <param name="routeKey">The <see cref="RouteKey"/> identifying the set of assemblies to search.</param>
+    /// <param name="serviceProvider">The application's <see cref="IServiceProvider"/>.</param>
+    /// <returns>A <see cref="RouteTable"/> containing only pages marked with <see cref="ExcludeFromInteractiveRoutingAttribute"/>.</returns>
+    public RouteTable GetExcludedRouteTable(RouteKey routeKey, IServiceProvider serviceProvider)
+    {
+        if (_excludedRouteCache.TryGetValue(routeKey, out var resolvedComponents))
+        {
+            return resolvedComponents;
+        }
+
+        var componentTypes = GetRouteableComponents(routeKey, includeExcludedFromInteractiveRouting: true);
+        var routeTable = Create(componentTypes, serviceProvider);
+        _excludedRouteCache.TryAdd(routeKey, routeTable);
+        return routeTable;
+    }
+
+    public void ClearCaches()
+    {
+        _cache.Clear();
+        _excludedRouteCache.Clear();
+    }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Application code does not get trimmed, and the framework does not define routable components.")]
-    private static List<Type> GetRouteableComponents(RouteKey routeKey)
+    private static List<Type> GetRouteableComponents(RouteKey routeKey, bool includeExcludedFromInteractiveRouting)
     {
         var routeableComponents = new List<Type>();
         if (routeKey.AppAssembly is not null)
         {
-            GetRouteableComponents(routeableComponents, routeKey.AppAssembly);
+            GetRouteableComponents(routeableComponents, routeKey.AppAssembly, includeExcludedFromInteractiveRouting);
         }
 
         if (routeKey.AdditionalAssemblies is not null)
@@ -62,20 +89,22 @@ internal class RouteTableFactory
                 // We don't need process the assembly if it's the app assembly.
                 if (assembly != routeKey.AppAssembly)
                 {
-                    GetRouteableComponents(routeableComponents, assembly);
+                    GetRouteableComponents(routeableComponents, assembly, includeExcludedFromInteractiveRouting);
                 }
             }
         }
 
         return routeableComponents;
 
-        static void GetRouteableComponents(List<Type> routeableComponents, Assembly assembly)
+        static void GetRouteableComponents(List<Type> routeableComponents, Assembly assembly, bool includeExcludedFromInteractiveRouting)
         {
             foreach (var type in assembly.ExportedTypes)
             {
                 if (typeof(IComponent).IsAssignableFrom(type)
                     && type.IsDefined(typeof(RouteAttribute))
-                    && !type.IsDefined(typeof(ExcludeFromInteractiveRoutingAttribute)))
+                    && (includeExcludedFromInteractiveRouting
+                        ? type.IsDefined(typeof(ExcludeFromInteractiveRoutingAttribute))
+                        : !type.IsDefined(typeof(ExcludeFromInteractiveRoutingAttribute))))
                 {
                     routeableComponents.Add(type);
                 }
