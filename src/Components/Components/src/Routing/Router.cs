@@ -315,9 +315,9 @@ public partial class Router : IComponent, IHandleAfterRender, IDisposable
                 // developers do not need to know whether the target page is interactive or static.
                 if (IsExcludedFromInteractiveRoutingRoute(locationPath))
                 {
-                    activityHandle = RecordDiagnostics("External", "External");
+                    activityHandle = RecordDiagnostics("ExcludedRoute", "ExcludedRoute");
 
-                    Log.NavigatingToExternalUri(_logger, _locationAbsolute, locationPath, _baseUri);
+                    Log.NavigatingToExcludedPage(_logger, _locationAbsolute, locationPath, _baseUri);
                     NavigationManager.NavigateTo(_locationAbsolute, forceLoad: true);
                 }
                 else
@@ -529,6 +529,9 @@ public partial class Router : IComponent, IHandleAfterRender, IDisposable
 
         [LoggerMessage(4, LogLevel.Debug, $"Displaying contents of {{displayedContentPath}} on request", EventName = "DisplayingNotFoundOnRequest")]
         internal static partial void DisplayingNotFound(ILogger logger, string displayedContentPath);
+
+        [LoggerMessage(5, LogLevel.Debug, "Performing full-page navigation to '{ExternalUri}' because path '{Path}' with base URI '{BaseUri}' targets a page marked with [ExcludeFromInteractiveRouting]", EventName = "NavigatingToExcludedPage")]
+        internal static partial void NavigatingToExcludedPage(ILogger logger, string externalUri, string path, string baseUri);
 #pragma warning restore CS0618 // Type or member is obsolete
     }
 }

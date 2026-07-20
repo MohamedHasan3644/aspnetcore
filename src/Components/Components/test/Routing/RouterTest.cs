@@ -559,12 +559,13 @@ public class RouterTest
     }
 
     [Fact]
-    public async Task InterceptedNavigationToPageWithExcludeFromInteractiveRoutingAttribute_TriggersForceLoad()
+    public async Task InterceptedNavigationToExcludedPage_TriggersForceLoad()
     {
-        // This verifies the existing behavior: anchor-link clicks on a page marked with
-        // [ExcludeFromInteractiveRouting] already fall back to a full page reload. This test
-        // protects against regressions. We model the intercepted link click by performing a
-        // refresh with isNavigationIntercepted: true for an excluded page.
+        // Verifies the existing behavior: when an interactive router handles an intercepted
+        // link click (e.g. from a Blazor-enhanced nav link) that targets a page marked with
+        // [ExcludeFromInteractiveRouting], the router falls back to a full page reload.
+        // This is regression protection for the anchor-click path that already worked before
+        // the fix for https://github.com/dotnet/aspnetcore/issues/64541.
         _navigationManager.NotifyLocationChanged("https://www.example.com/subdir/static-page", false);
 
         var parameters = new Dictionary<string, object>
@@ -575,22 +576,51 @@ public class RouterTest
 
         await _renderer.Dispatcher.InvokeAsync(() =>
             _router.SetParametersAsync(ParameterView.FromDictionary(parameters)));
-        // After the initial render the Router has already triggered a force-load navigation
-        // (the new behavior added in this fix). Simulate the additional re-render that occurs
-        // when an intercepted link click triggers a refresh with isNavigationIntercepted: true.
-        // The second call to NavigateTo should not happen because the first one already updated
-        // the location. To avoid double-counting, we assert that exactly one navigation occurred,
-        // which is the programmatic one, and then exercise the intercepted path directly.
-        var initialNavigations = _navigationManager.Navigations.Count;
+
+        // The first render goes through the non-intercepted path and triggers a force-load
+        // navigation (new behavior). The intercepted path is exercised separately below.
+        Assert.Single(_navigationManager.Navigations);
+
+        // Simulate the second refresh that occurs when the framework re-invokes the router
+        // with isNavigationIntercepted: true after the link click. The router should perform
+        // another force-load navigation.
         _router.Refresh(isNavigationIntercepted: true);
 
-        // The intercepted path should also trigger a force-load navigation, leading to a second
-        // NavigateTo call. This ensures the existing behavior for intercepted link clicks
-        // continues to work.
-        Assert.Equal(initialNavigations + 1, _navigationManager.Navigations.Count);
+        Assert.Equal(2, _navigationManager.Navigations.Count);
         var forceLoadNavigation = _navigationManager.Navigations.Last();
         Assert.True(forceLoadNavigation.ForceLoad);
         Assert.Equal("https://www.example.com/subdir/static-page", forceLoadNavigation.Uri);
+    }
+
+    [Fact]
+    public async Task InterceptedNavigationToNonexistentRoute_TriggersForceLoad()
+    {
+        // Verifies the existing behavior: when an interactive router handles an intercepted
+        // link click that targets a non-component URL (e.g. a plain HTML page or any path that
+        // isn't a routed Blazor component), the router falls back to a full page reload.
+        // This is regression protection for the intercepted-path branch, independent of the
+        // [ExcludeFromInteractiveRouting] fix.
+        _navigationManager.NotifyLocationChanged("https://www.example.com/subdir/jan", false);
+
+        var parameters = new Dictionary<string, object>
+        {
+            { nameof(Router.AppAssembly), typeof(RouterTest).Assembly },
+            { nameof(Router.NotFound), (RenderFragment)(builder => builder.AddContent(0, "NotFound")) },
+        };
+
+        await _renderer.Dispatcher.InvokeAsync(() =>
+            _router.SetParametersAsync(ParameterView.FromDictionary(parameters)));
+
+        // First render matches /jan, so no navigation should have happened yet.
+        Assert.Empty(_navigationManager.Navigations);
+
+        // Now simulate an intercepted navigation to a path that has no matching component.
+        _navigationManager.NotifyLocationChanged("https://www.example.com/subdir/some-external-page", false);
+        _router.Refresh(isNavigationIntercepted: true);
+
+        var forceLoadNavigation = Assert.Single(_navigationManager.Navigations);
+        Assert.True(forceLoadNavigation.ForceLoad);
+        Assert.Equal("https://www.example.com/subdir/some-external-page", forceLoadNavigation.Uri);
     }
 
     internal class TestNavigationManager : NavigationManager
