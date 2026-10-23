@@ -89,6 +89,30 @@ public class RouteTableFactoryTests
         Assert.DoesNotContain(routes, r => r.Handler == typeof(ComponentWithExcludeFromInteractiveRoutingAttribute));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CachesExcludedRoutesSeparatelyAndClearsBothTables(bool useAdditionalAssemblies)
+    {
+        var routeTableFactory = new RouteTableFactory();
+        var routeKey = useAdditionalAssemblies
+            ? new RouteKey(typeof(ComponentBase).Assembly, new[] { GetType().Assembly })
+            : new RouteKey(GetType().Assembly, Array.Empty<Assembly>());
+        var interactiveRoutes = routeTableFactory.Create(routeKey, _serviceProvider);
+        var excludedRoutes = routeTableFactory.Create(routeKey, _serviceProvider, excludedRoutesOnly: true);
+
+        Assert.NotSame(interactiveRoutes, excludedRoutes);
+        Assert.Same(excludedRoutes, routeTableFactory.Create(routeKey, _serviceProvider, excludedRoutesOnly: true));
+        var routes = GetRoutes(excludedRoutes);
+        Assert.Contains(routes, route => route.Handler == typeof(ComponentWithExcludeFromInteractiveRoutingAttribute));
+        Assert.All(routes, route => Assert.True(route.Handler.IsDefined(typeof(ExcludeFromInteractiveRoutingAttribute))));
+
+        routeTableFactory.ClearCaches();
+
+        Assert.NotSame(interactiveRoutes, routeTableFactory.Create(routeKey, _serviceProvider));
+        Assert.NotSame(excludedRoutes, routeTableFactory.Create(routeKey, _serviceProvider, excludedRoutesOnly: true));
+    }
+
     [Fact]
     public void CanDiscoverRoute()
     {

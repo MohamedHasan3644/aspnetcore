@@ -29,30 +29,31 @@ internal class RouteTableFactory
         return result != 0 ? result : string.Compare(x.RoutePattern.RawText, y.RoutePattern.RawText, StringComparison.OrdinalIgnoreCase);
     });
 
-    private readonly ConcurrentDictionary<RouteKey, RouteTable> _cache = new();
+    private readonly ConcurrentDictionary<(RouteKey, bool ExcludedRoutesOnly), RouteTable> _cache = new();
 
-    public RouteTable Create(RouteKey routeKey, IServiceProvider serviceProvider)
+    public RouteTable Create(RouteKey routeKey, IServiceProvider serviceProvider, bool excludedRoutesOnly = false)
     {
-        if (_cache.TryGetValue(routeKey, out var resolvedComponents))
+        var cacheKey = (routeKey, excludedRoutesOnly);
+        if (_cache.TryGetValue(cacheKey, out var resolvedComponents))
         {
             return resolvedComponents;
         }
 
-        var componentTypes = GetRouteableComponents(routeKey);
+        var componentTypes = GetRouteableComponents(routeKey, excludedRoutesOnly);
         var routeTable = Create(componentTypes, serviceProvider);
-        _cache.TryAdd(routeKey, routeTable);
+        _cache.TryAdd(cacheKey, routeTable);
         return routeTable;
     }
 
     public void ClearCaches() => _cache.Clear();
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Application code does not get trimmed, and the framework does not define routable components.")]
-    private static List<Type> GetRouteableComponents(RouteKey routeKey)
+    private static List<Type> GetRouteableComponents(RouteKey routeKey, bool excludedRoutesOnly)
     {
         var routeableComponents = new List<Type>();
         if (routeKey.AppAssembly is not null)
         {
-            GetRouteableComponents(routeableComponents, routeKey.AppAssembly);
+            GetRouteableComponents(routeableComponents, routeKey.AppAssembly, excludedRoutesOnly);
         }
 
         if (routeKey.AdditionalAssemblies is not null)
@@ -62,20 +63,20 @@ internal class RouteTableFactory
                 // We don't need process the assembly if it's the app assembly.
                 if (assembly != routeKey.AppAssembly)
                 {
-                    GetRouteableComponents(routeableComponents, assembly);
+                    GetRouteableComponents(routeableComponents, assembly, excludedRoutesOnly);
                 }
             }
         }
 
         return routeableComponents;
 
-        static void GetRouteableComponents(List<Type> routeableComponents, Assembly assembly)
+        static void GetRouteableComponents(List<Type> routeableComponents, Assembly assembly, bool excludedRoutesOnly)
         {
             foreach (var type in assembly.ExportedTypes)
             {
                 if (typeof(IComponent).IsAssignableFrom(type)
                     && type.IsDefined(typeof(RouteAttribute))
-                    && !type.IsDefined(typeof(ExcludeFromInteractiveRoutingAttribute)))
+                    && type.IsDefined(typeof(ExcludeFromInteractiveRoutingAttribute)) == excludedRoutesOnly)
                 {
                     routeableComponents.Add(type);
                 }

@@ -9,6 +9,7 @@ namespace Microsoft.AspNetCore.Components;
 /// When applied to a page component, indicates that the interactive <see cref="Router"/> component should
 /// ignore that page. This means that navigations to the page will not be resolved by interactive routing,
 /// but instead will cause a full page reload.
+/// This applies to both links and programmatic navigation.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
 public sealed class ExcludeFromInteractiveRoutingAttribute : Attribute

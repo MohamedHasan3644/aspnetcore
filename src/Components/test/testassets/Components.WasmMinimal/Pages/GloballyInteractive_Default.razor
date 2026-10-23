@@ -1,4 +1,6 @@
 ﻿@page "/globally-interactive"
+@using Microsoft.AspNetCore.Components.Web
+@inject NavigationManager Navigation
 
 <h1>Global interactivity page: Default</h1>
 
@@ -10,3 +12,7 @@
 <ShowExecutionMode />
 
 <GloballyInteractive_Links />
+
+<button id="navigate-to-excluded-page" @onclick='() => Navigation.NavigateTo("globally-interactive/static-via-attribute?value=42#static-target")'>Navigate to excluded page</button>
+<button id="navigate-to-interactive-page" @onclick='() => Navigation.NavigateTo(Navigation.Uri + "&navigated=true")'>Navigate to interactive page</button>
+<button id="navigate-to-missing-page" @onclick='() => Navigation.NavigateTo("globally-interactive/missing")'>Navigate to missing page</button>

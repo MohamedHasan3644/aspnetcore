@@ -210,6 +210,15 @@ public partial class Router : IComponent, IHandleAfterRender, IDisposable
         _routeTableLastBuiltForRouteKey = default;
     }
 
+    private bool IsExcludedFromInteractiveRouting(string locationPath)
+    {
+        var excludedRoutes = RouteTableFactory.Instance.Create(
+            _routeTableLastBuiltForRouteKey, ServiceProvider, excludedRoutesOnly: true);
+        var context = new RouteContext(locationPath);
+        excludedRoutes.Route(context);
+        return context.Handler is not null;
+    }
+
     internal virtual void Refresh(bool isNavigationIntercepted)
     {
         // If an `OnNavigateAsync` task is currently in progress, then wait
@@ -285,15 +294,15 @@ public partial class Router : IComponent, IHandleAfterRender, IDisposable
         }
         else
         {
-            if (!isNavigationIntercepted)
+            if (!isNavigationIntercepted && !IsExcludedFromInteractiveRouting(locationPath))
             {
                 activityHandle = RecordDiagnostics("NotFound", "NotFound");
 
                 Log.DisplayingNotFound(_logger, locationPath, _baseUri);
 
                 // We did not find a Component that matches the route.
-                // Only show the NotFound content if the application developer programmatically got us here i.e we did not
-                // intercept the navigation. In all other cases, force a browser navigation since this could be non-Blazor content.
+                // Only show the NotFound content for programmatic navigation to an unknown route.
+                // Excluded routes and intercepted navigations require a full page load.
                 RenderNotFound();
             }
             else
@@ -301,7 +310,14 @@ public partial class Router : IComponent, IHandleAfterRender, IDisposable
                 activityHandle = RecordDiagnostics("External", "External");
 
                 Log.NavigatingToExternalUri(_logger, _locationAbsolute, locationPath, _baseUri);
-                NavigationManager.NavigateTo(_locationAbsolute, forceLoad: true);
+                if (isNavigationIntercepted)
+                {
+                    NavigationManager.NavigateTo(_locationAbsolute, forceLoad: true);
+                }
+                else
+                {
+                    NavigationManager.Refresh(forceReload: true);
+                }
             }
         }
         if (ComponentsActivitySource.IsSupported && _renderHandle.ComponentActivitySource != null)

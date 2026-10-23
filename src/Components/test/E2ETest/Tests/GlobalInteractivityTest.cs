@@ -140,6 +140,53 @@ public class GlobalInteractivityTest(
     }
 
     [Theory]
+    [InlineData("server", true)]
+    [InlineData("server", false)]
+    [InlineData("webassembly", true)]
+    [InlineData("webassembly", false)]
+    public void CanNavigateProgrammaticallyToExcludedPageAndBack(string renderMode, bool prerender)
+    {
+        Navigate($"/subdir/globally-interactive?renderMode={renderMode}&prerender={prerender.ToString().ToLowerInvariant()}");
+        Browser.Equal($"interactive {renderMode}", () => Browser.Exists(By.Id("execution-mode")).Text);
+        var document = Browser.Exists(By.TagName("html"));
+
+        Browser.Click(By.Id("navigate-to-excluded-page"));
+
+        Browser.True(() => Browser.FindElements(By.Id("not-found-fragment")).Count > 0 ||
+            Browser.FindElements(By.TagName("h1")).Any(element => element.Text == "Global interactivity page: Static via attribute"));
+        Assert.Empty(Browser.FindElements(By.Id("not-found-fragment")));
+        Browser.Equal("Global interactivity page: Static via attribute", () => Browser.Exists(By.TagName("h1")).Text);
+        Browser.Equal("static", () => Browser.Exists(By.Id("execution-mode")).Text);
+        Assert.NotEqual(document, Browser.Exists(By.TagName("html")));
+        Assert.EndsWith("/globally-interactive/static-via-attribute?value=42#static-target", Browser.Url);
+
+        Browser.Navigate().Back();
+        Browser.Equal("Global interactivity page: Default", () => Browser.Exists(By.TagName("h1")).Text);
+        Browser.Equal($"interactive {renderMode}", () => Browser.Exists(By.Id("execution-mode")).Text);
+    }
+
+    [Theory]
+    [InlineData("server", true)]
+    [InlineData("server", false)]
+    [InlineData("webassembly", true)]
+    [InlineData("webassembly", false)]
+    public void ProgrammaticInteractiveAndUnknownRoutesDoNotReload(string renderMode, bool prerender)
+    {
+        Navigate($"/subdir/globally-interactive?renderMode={renderMode}&prerender={prerender.ToString().ToLowerInvariant()}");
+        Browser.Equal($"interactive {renderMode}", () => Browser.Exists(By.Id("execution-mode")).Text);
+        var document = Browser.Exists(By.TagName("html"));
+
+        Browser.Click(By.Id("navigate-to-interactive-page"));
+        Browser.True(() => Browser.Url.EndsWith("&navigated=true", StringComparison.Ordinal));
+        Browser.Equal($"interactive {renderMode}", () => Browser.Exists(By.Id("execution-mode")).Text);
+        Assert.Equal(document, Browser.Exists(By.TagName("html")));
+
+        Browser.Click(By.Id("navigate-to-missing-page"));
+        Browser.Equal("There's nothing here", () => Browser.Exists(By.Id("not-found-fragment")).Text);
+        Assert.Equal(document, Browser.Exists(By.TagName("html")));
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void CanRenderNotFoundPage_SSR(bool streamingStarted)

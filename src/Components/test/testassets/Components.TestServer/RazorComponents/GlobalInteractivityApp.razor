@@ -26,6 +26,14 @@
     // but that can be suppressed via URL or attribute.
     private IComponentRenderMode? PageRenderMode
         => HttpContext.AcceptsInteractiveRouting() && !HttpContext.Request.Path.StartsWithSegments("/globally-interactive/static-via-url")
-        ? RenderMode.InteractiveWebAssembly
+        ? GetInteractiveRenderMode()
         : null;
+
+    private IComponentRenderMode GetInteractiveRenderMode()
+    {
+        var prerender = HttpContext.Request.Query["prerender"] != "false";
+        return HttpContext.Request.Query["renderMode"] == "server"
+            ? new InteractiveServerRenderMode(prerender)
+            : new InteractiveWebAssemblyRenderMode(prerender);
+    }
 }

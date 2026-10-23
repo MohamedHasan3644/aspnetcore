@@ -268,6 +268,57 @@ public class RouterTest
         Assert.Equal("Not found", renderedFrame.TextContent);
     }
 
+    [Theory]
+    [InlineData("excluded-router-test")]
+    [InlineData("excluded-router-test?value=42#target")]
+    [InlineData("excluded-router-test/constrained/42")]
+    [InlineData("excluded-router-test/optional")]
+    [InlineData("excluded-router-test/optional/value")]
+    [InlineData("excluded-router-test/catch-all/a/b")]
+    public async Task ProgrammaticNavigationToExcludedRouteForcesFullLoad(string path)
+    {
+        await _renderer.Dispatcher.InvokeAsync(() => _router.SetParametersAsync(ParameterView.Empty));
+        var batchCount = _renderer.Batches.Count;
+        var uri = $"https://www.example.com/subdir/{path}";
+
+        await _renderer.Dispatcher.InvokeAsync(() => _navigationManager.NotifyLocationChanged(uri, false));
+
+        var navigation = Assert.Single(_navigationManager.Navigations);
+        Assert.Equal(uri, navigation.Uri);
+        Assert.True(navigation.ForceLoad);
+        Assert.Equal(batchCount, _renderer.Batches.Count);
+        Assert.Empty(_renderer.HandledExceptions);
+    }
+
+    [Theory]
+    [InlineData("excluded-router-test/constrained/not-an-integer")]
+    [InlineData("nonexistent")]
+    public async Task ProgrammaticNavigationToUnmatchedRouteDoesNotForceFullLoad(string path)
+    {
+        await _renderer.Dispatcher.InvokeAsync(() => _router.SetParametersAsync(ParameterView.Empty));
+
+        await _renderer.Dispatcher.InvokeAsync(() =>
+            _navigationManager.NotifyLocationChanged($"https://www.example.com/subdir/{path}", false));
+
+        Assert.Empty(_navigationManager.Navigations);
+        Assert.Equal("Not found", _renderer.Batches.Last().ReferenceFrames.First().TextContent);
+        Assert.Empty(_renderer.HandledExceptions);
+    }
+
+    [Fact]
+    public async Task InteractiveCatchAllStillTakesPrecedenceOverExcludedRoute()
+    {
+        await _renderer.Dispatcher.InvokeAsync(() => _router.SetParametersAsync(ParameterView.Empty));
+
+        await _renderer.Dispatcher.InvokeAsync(() =>
+            _navigationManager.NotifyLocationChanged("https://www.example.com/subdir/a/excluded-router-test", false));
+
+        Assert.Empty(_navigationManager.Navigations);
+        Assert.Equal($"Rendering route matching {typeof(MatchAnythingComponent)}",
+            _renderer.Batches.Last().ReferenceFrames.First().TextContent);
+        Assert.Empty(_renderer.HandledExceptions);
+    }
+
     [Fact]
     public async Task ThrowsExceptionWhenBothNotFoundAndNotFoundPageAreSet()
     {
@@ -480,8 +531,20 @@ public class RouterTest
 
     internal class TestNavigationManager : NavigationManager
     {
+        public List<(string Uri, bool ForceLoad)> Navigations { get; } = new();
+
         public TestNavigationManager() =>
             Initialize("https://www.example.com/subdir/", "https://www.example.com/subdir/jan");
+
+        protected override void NavigateToCore(string uri, bool forceLoad)
+        {
+            Navigations.Add((uri, forceLoad));
+        }
+
+        public override void Refresh(bool forceReload = false)
+        {
+            Navigations.Add((Uri, forceReload));
+        }
 
         public void NotifyLocationChanged(string uri, bool intercepted, string state = null)
         {
@@ -527,5 +590,13 @@ public class RouterTest
 
     [Route("not-found")]
     public class NotFoundTestComponent : ComponentBase { }
+
+    [Route("excluded-router-test")]
+    [Route("excluded-router-test/constrained/{id:int}")]
+    [Route("excluded-router-test/optional/{value?}")]
+    [Route("excluded-router-test/catch-all/{*path}")]
+    [Route("a/excluded-router-test")]
+    [ExcludeFromInteractiveRouting]
+    public class ExcludedComponent : ComponentBase { }
 
 }
